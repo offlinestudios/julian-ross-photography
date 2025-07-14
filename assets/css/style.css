@@ -106,7 +106,7 @@ body {
 
 .gallery-item {
     position: relative;
-    aspect-ratio: 1;
+    aspect-ratio: 4/5;
     overflow: hidden;
     cursor: pointer;
     background-color: #f8f8f8;
