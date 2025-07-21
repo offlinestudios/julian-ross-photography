@@ -1,4 +1,3 @@
-
 // Mobile Navigation
 const hamburger = document.querySelector('.hamburger');
 const navMenu = document.querySelector('.nav-menu');
@@ -45,7 +44,14 @@ function openLightbox(index) {
     currentImageIndex = index;
     const current = galleryImages[currentImageIndex];
 
-    if (current.src.endsWith('.mp4')) {
+    // Hide video and show image by default
+    if (lightboxVideo) {
+        lightboxVideo.style.display = 'none';
+        lightboxVideo.pause();
+        lightboxVideo.currentTime = 0;
+    }
+
+    if (current.src.endsWith('.mp4') && lightboxVideo) {
         lightboxImg.style.display = 'none';
         lightboxVideo.style.display = 'block';
         lightboxVideo.querySelector('source').src = current.src;
@@ -61,9 +67,13 @@ function openLightbox(index) {
 
 function updateLightboxImage() {
     const current = galleryImages[currentImageIndex];
-    lightboxVideo.pause();
-    lightboxVideo.currentTime = 0;
-    lightboxVideo.style.display = 'none';
+    
+    // Hide and pause video if it exists
+    if (lightboxVideo) {
+        lightboxVideo.pause();
+        lightboxVideo.currentTime = 0;
+        lightboxVideo.style.display = 'none';
+    }
 
     lightboxImg.src = current.src;
     lightboxImg.alt = current.alt;
@@ -74,8 +84,12 @@ function updateLightboxImage() {
 function closeLightbox() {
     lightbox.style.display = 'none';
     document.body.style.overflow = 'auto';
-    lightboxVideo.pause();
-    lightboxVideo.currentTime = 0;
+    
+    // Pause and reset video if it exists
+    if (lightboxVideo) {
+        lightboxVideo.pause();
+        lightboxVideo.currentTime = 0;
+    }
 }
 
 function prevImage() {
@@ -114,8 +128,7 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-document.addEventListener('DOMContentLoaded', initGallery);
-
+// Smooth scrolling for anchor links
 document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     anchor.addEventListener('click', function (e) {
         e.preventDefault();
@@ -129,6 +142,7 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     });
 });
 
+// Lazy loading for images
 if ('IntersectionObserver' in window) {
     const imageObserver = new IntersectionObserver((entries, observer) => {
         entries.forEach(entry => {
@@ -145,3 +159,31 @@ if ('IntersectionObserver' in window) {
         imageObserver.observe(img);
     });
 }
+
+// Video hover functionality
+function initVideoHover() {
+    const videoItems = document.querySelectorAll('.gallery-item.video-item video');
+    
+    videoItems.forEach(video => {
+        const galleryItem = video.closest('.gallery-item');
+        
+        galleryItem.addEventListener('mouseenter', () => {
+            video.play().catch(e => {
+                // Handle autoplay restrictions
+                console.log('Video autoplay prevented:', e);
+            });
+        });
+        
+        galleryItem.addEventListener('mouseleave', () => {
+            video.pause();
+            video.currentTime = 0;
+        });
+    });
+}
+
+// Initialize everything when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    initGallery();
+    initVideoHover();
+});
+
