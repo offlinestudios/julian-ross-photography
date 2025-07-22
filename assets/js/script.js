@@ -160,24 +160,132 @@ if ('IntersectionObserver' in window) {
     });
 }
 
-// Video hover functionality
+// Video hover functionality for desktop and touch functionality for mobile
 function initVideoHover() {
     const videoItems = document.querySelectorAll('.gallery-item.video-item video');
     
     videoItems.forEach(video => {
         const galleryItem = video.closest('.gallery-item');
+        let touchTimer = null;
+        let isPlaying = false;
+        let isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        let hasShownHint = localStorage.getItem('videoHintShown') === 'true';
         
-        galleryItem.addEventListener('mouseenter', () => {
-            video.play().catch(e => {
-                // Handle autoplay restrictions
-                console.log('Video autoplay prevented:', e);
+        // Desktop hover functionality
+        if (!isTouchDevice) {
+            galleryItem.addEventListener('mouseenter', () => {
+                video.play().catch(e => {
+                    console.log('Video autoplay prevented:', e);
+                });
             });
-        });
-        
-        galleryItem.addEventListener('mouseleave', () => {
-            video.pause();
-            video.currentTime = 0;
-        });
+            
+            galleryItem.addEventListener('mouseleave', () => {
+                video.pause();
+                video.currentTime = 0;
+            });
+        } else {
+            // Mobile touch functionality
+            
+            // Show hint on first interaction if not shown before
+            if (!hasShownHint) {
+                galleryItem.classList.add('show-hint');
+                setTimeout(() => {
+                    galleryItem.classList.remove('show-hint');
+                    localStorage.setItem('videoHintShown', 'true');
+                }, 3000);
+            }
+            
+            // Touch and hold to preview (like Instagram stories)
+            galleryItem.addEventListener('touchstart', (e) => {
+                // Don't prevent default to allow normal click events for lightbox
+                
+                touchTimer = setTimeout(() => {
+                    video.play().catch(e => {
+                        console.log('Video autoplay prevented:', e);
+                    });
+                    isPlaying = true;
+                    
+                    // Add visual feedback for touch preview
+                    galleryItem.classList.add('playing');
+                    galleryItem.style.transform = 'scale(0.98)';
+                    galleryItem.style.transition = 'transform 0.1s ease';
+                    
+                    // Haptic feedback if available
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                }, 300); // Start preview after 300ms hold
+            });
+            
+            galleryItem.addEventListener('touchend', (e) => {
+                if (touchTimer) {
+                    clearTimeout(touchTimer);
+                    touchTimer = null;
+                }
+                
+                // Reset visual feedback
+                galleryItem.style.transform = 'scale(1)';
+                galleryItem.classList.remove('playing');
+                
+                if (isPlaying) {
+                    video.pause();
+                    video.currentTime = 0;
+                    isPlaying = false;
+                    e.preventDefault(); // Prevent lightbox opening when ending preview
+                    e.stopPropagation();
+                }
+            });
+            
+            galleryItem.addEventListener('touchcancel', (e) => {
+                if (touchTimer) {
+                    clearTimeout(touchTimer);
+                    touchTimer = null;
+                }
+                
+                galleryItem.style.transform = 'scale(1)';
+                galleryItem.classList.remove('playing');
+                
+                if (isPlaying) {
+                    video.pause();
+                    video.currentTime = 0;
+                    isPlaying = false;
+                }
+            });
+            
+            // Alternative: Double tap to toggle play/pause
+            let lastTap = 0;
+            galleryItem.addEventListener('touchend', (e) => {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                
+                if (tapLength < 500 && tapLength > 0 && !isPlaying) {
+                    // Double tap detected and not currently in preview mode
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    if (video.paused) {
+                        video.play().catch(e => {
+                            console.log('Video autoplay prevented:', e);
+                        });
+                        galleryItem.classList.add('playing');
+                        
+                        // Auto-pause after 3 seconds for preview
+                        setTimeout(() => {
+                            if (!video.paused) {
+                                video.pause();
+                                video.currentTime = 0;
+                                galleryItem.classList.remove('playing');
+                            }
+                        }, 3000);
+                    } else {
+                        video.pause();
+                        video.currentTime = 0;
+                        galleryItem.classList.remove('playing');
+                    }
+                }
+                lastTap = currentTime;
+            });
+        }
     });
 }
 
