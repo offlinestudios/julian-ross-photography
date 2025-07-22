@@ -160,132 +160,238 @@ if ('IntersectionObserver' in window) {
     });
 }
 
-// Video hover functionality for desktop and touch functionality for mobile
+// Apple-style video optimization and hover functionality
 function initVideoHover() {
-    const videoItems = document.querySelectorAll('.gallery-item.video-item video');
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const videoItems = document.querySelectorAll('.gallery-item.video-item');
     
-    videoItems.forEach(video => {
-        const galleryItem = video.closest('.gallery-item');
-        let touchTimer = null;
+    // Intersection Observer for smart preloading (Apple-style)
+    const videoObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const video = entry.target.querySelector('video');
+            if (!video) return;
+            
+            if (entry.isIntersecting) {
+                // Video is near viewport - start aggressive preloading
+                if (video.preload !== 'auto') {
+                    video.preload = 'auto';
+                    video.load(); // Force reload with new preload setting
+                    console.log('Smart preloading video:', video.src);
+                }
+            } else if (entry.intersectionRatio < 0.1) {
+                // Video is far from viewport - reduce memory usage
+                if (!video.classList.contains('playing') && video.readyState > 2) {
+                    video.preload = 'metadata';
+                }
+            }
+        });
+    }, {
+        rootMargin: '300px', // Start loading 300px before entering viewport
+        threshold: [0, 0.1, 0.5]
+    });
+    
+    videoItems.forEach((galleryItem, index) => {
+        const video = galleryItem.querySelector('video');
+        if (!video) return;
+        
+        // Observe for smart preloading
+        videoObserver.observe(galleryItem);
+        
+        // Apple-style video optimization
+        video.preload = 'metadata'; // Start with metadata only
+        video.muted = true; // Required for autoplay policies
+        video.playsInline = true; // Prevent fullscreen on mobile
+        
+        // Enhanced buffering strategy with loading states
+        let isBuffering = false;
+        let bufferTimeout;
+        let preloadPromise = null;
+        
+        const ensureVideoReady = () => {
+            if (preloadPromise) return preloadPromise;
+            
+            preloadPromise = new Promise((resolve) => {
+                if (video.readyState >= 3) { // HAVE_FUTURE_DATA or better
+                    resolve();
+                    return;
+                }
+                
+                isBuffering = true;
+                galleryItem.classList.add('buffering');
+                
+                // Force aggressive preloading
+                video.preload = 'auto';
+                video.load();
+                
+                const checkBuffer = () => {
+                    if (video.readyState >= 3) {
+                        isBuffering = false;
+                        galleryItem.classList.remove('buffering');
+                        preloadPromise = null;
+                        resolve();
+                    } else {
+                        bufferTimeout = setTimeout(checkBuffer, 50); // Check more frequently
+                    }
+                };
+                
+                // Start checking immediately
+                checkBuffer();
+                
+                // Fallback timeout
+                setTimeout(() => {
+                    if (isBuffering) {
+                        console.log('Video buffering timeout, proceeding anyway');
+                        isBuffering = false;
+                        galleryItem.classList.remove('buffering');
+                        preloadPromise = null;
+                        resolve();
+                    }
+                }, 3000);
+            });
+            
+            return preloadPromise;
+        };
+        
+        let touchTimer;
+        let doubleTapTimer;
+        let tapCount = 0;
         let isPlaying = false;
-        let isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
         let hasShownHint = localStorage.getItem('videoHintShown') === 'true';
         
-        // Desktop hover functionality
-        if (!isTouchDevice) {
-            galleryItem.addEventListener('mouseenter', () => {
-                video.play().catch(e => {
-                    console.log('Video autoplay prevented:', e);
-                });
-            });
-            
-            galleryItem.addEventListener('mouseleave', () => {
-                video.pause();
-                video.currentTime = 0;
-            });
-        } else {
-            // Mobile touch functionality
-            
-            // Show hint on first interaction if not shown before
-            if (!hasShownHint) {
-                galleryItem.classList.add('show-hint');
-                setTimeout(() => {
-                    galleryItem.classList.remove('show-hint');
-                    localStorage.setItem('videoHintShown', 'true');
-                }, 3000);
-            }
-            
-            // Touch and hold to preview (like Instagram stories)
-            galleryItem.addEventListener('touchstart', (e) => {
-                // Don't prevent default to allow normal click events for lightbox
+        // Show hint for mobile users (first time only)
+        if (isTouchDevice && !hasShownHint && index < 3) { // Only show on first few videos
+            galleryItem.classList.add('show-hint');
+            setTimeout(() => {
+                galleryItem.classList.remove('show-hint');
+                localStorage.setItem('videoHintShown', 'true');
+            }, 3000);
+        }
+        
+        if (isTouchDevice) {
+            // Enhanced touch and hold functionality with preloading
+            galleryItem.addEventListener('touchstart', async (e) => {
+                galleryItem.classList.add('touch-active');
                 
-                touchTimer = setTimeout(() => {
-                    video.play().catch(e => {
-                        console.log('Video autoplay prevented:', e);
-                    });
-                    isPlaying = true;
-                    
-                    // Add visual feedback for touch preview
-                    galleryItem.classList.add('playing');
-                    galleryItem.style.transform = 'scale(0.98)';
-                    galleryItem.style.transition = 'transform 0.1s ease';
-                    
-                    // Haptic feedback if available
-                    if (navigator.vibrate) {
-                        navigator.vibrate(50);
+                // Start buffering immediately on touch (Apple-style)
+                const readyPromise = ensureVideoReady();
+                
+                touchTimer = setTimeout(async () => {
+                    try {
+                        await readyPromise; // Wait for sufficient buffering
+                        await video.play();
+                        isPlaying = true;
+                        galleryItem.classList.add('playing');
+                        
+                        // Enhanced visual feedback
+                        galleryItem.style.transform = 'scale(0.98)';
+                        galleryItem.style.transition = 'transform 0.1s ease';
+                        
+                        // Haptic feedback
+                        if (navigator.vibrate) {
+                            navigator.vibrate(50);
+                        }
+                    } catch (e) {
+                        console.log('Video play prevented:', e);
+                        galleryItem.classList.remove('buffering');
                     }
-                }, 300); // Start preview after 300ms hold
+                }, 200); // Reduced delay since we're pre-buffering
             });
             
             galleryItem.addEventListener('touchend', (e) => {
-                if (touchTimer) {
-                    clearTimeout(touchTimer);
-                    touchTimer = null;
-                }
-                
-                // Reset visual feedback
+                clearTimeout(touchTimer);
+                clearTimeout(bufferTimeout);
+                galleryItem.classList.remove('touch-active', 'buffering');
                 galleryItem.style.transform = 'scale(1)';
-                galleryItem.classList.remove('playing');
                 
                 if (isPlaying) {
                     video.pause();
                     video.currentTime = 0;
                     isPlaying = false;
-                    e.preventDefault(); // Prevent lightbox opening when ending preview
+                    galleryItem.classList.remove('playing');
+                    e.preventDefault(); // Prevent lightbox when ending preview
                     e.stopPropagation();
                 }
             });
             
             galleryItem.addEventListener('touchcancel', (e) => {
-                if (touchTimer) {
-                    clearTimeout(touchTimer);
-                    touchTimer = null;
-                }
-                
+                clearTimeout(touchTimer);
+                clearTimeout(bufferTimeout);
+                galleryItem.classList.remove('touch-active', 'buffering');
                 galleryItem.style.transform = 'scale(1)';
-                galleryItem.classList.remove('playing');
                 
                 if (isPlaying) {
                     video.pause();
                     video.currentTime = 0;
                     isPlaying = false;
+                    galleryItem.classList.remove('playing');
                 }
             });
             
-            // Alternative: Double tap to toggle play/pause
-            let lastTap = 0;
-            galleryItem.addEventListener('touchend', (e) => {
-                const currentTime = new Date().getTime();
-                const tapLength = currentTime - lastTap;
+            // Enhanced double tap functionality with preloading
+            galleryItem.addEventListener('touchend', async (e) => {
+                if (isPlaying) return; // Skip if already playing from hold
                 
-                if (tapLength < 500 && tapLength > 0 && !isPlaying) {
-                    // Double tap detected and not currently in preview mode
+                tapCount++;
+                if (tapCount === 1) {
+                    doubleTapTimer = setTimeout(() => {
+                        tapCount = 0;
+                    }, 300);
+                } else if (tapCount === 2) {
+                    clearTimeout(doubleTapTimer);
+                    tapCount = 0;
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    if (video.paused) {
-                        video.play().catch(e => {
-                            console.log('Video autoplay prevented:', e);
-                        });
+                    try {
+                        await ensureVideoReady(); // Ensure buffering before play
+                        await video.play();
+                        isPlaying = true;
                         galleryItem.classList.add('playing');
                         
-                        // Auto-pause after 3 seconds for preview
+                        // Auto-pause after 3 seconds
                         setTimeout(() => {
-                            if (!video.paused) {
+                            if (isPlaying) {
                                 video.pause();
                                 video.currentTime = 0;
+                                isPlaying = false;
                                 galleryItem.classList.remove('playing');
                             }
                         }, 3000);
-                    } else {
-                        video.pause();
-                        video.currentTime = 0;
-                        galleryItem.classList.remove('playing');
+                    } catch (e) {
+                        console.log('Video play prevented:', e);
+                        galleryItem.classList.remove('buffering');
                     }
                 }
-                lastTap = currentTime;
+            });
+            
+        } else {
+            // Enhanced desktop hover functionality with preloading
+            galleryItem.addEventListener('mouseenter', async () => {
+                try {
+                    await ensureVideoReady(); // Ensure buffering before play
+                    await video.play();
+                    galleryItem.classList.add('playing');
+                } catch (e) {
+                    console.log('Video play prevented:', e);
+                    galleryItem.classList.remove('buffering');
+                }
+            });
+            
+            galleryItem.addEventListener('mouseleave', () => {
+                clearTimeout(bufferTimeout);
+                video.pause();
+                video.currentTime = 0;
+                galleryItem.classList.remove('playing', 'buffering');
             });
         }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            videoObserver.disconnect();
+            clearTimeout(touchTimer);
+            clearTimeout(doubleTapTimer);
+            clearTimeout(bufferTimeout);
+        });
     });
 }
 
